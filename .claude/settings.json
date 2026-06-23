@@ -1,0 +1,44 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm test *)",
+      "Bash(npm run build *)",
+      "Bash(npx tsc *)",
+      "Bash(npm start *)",
+      "mcp__obsidian-dcdc__vault_read",
+      "mcp__obsidian-dcdc__vault_write",
+      "mcp__obsidian-dcdc__vault_patch",
+      "mcp__obsidian-dcdc__vault_append",
+      "mcp__obsidian-dcdc__vault_list",
+      "mcp__obsidian-dcdc__search_simple",
+      "mcp__obsidian-dcdc__periodic_note_get_path"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "FILE=$(jq -r '.tool_input.file_path // .tool_response.filePath // \"\"'); if echo \"$FILE\" | grep -qE '^/Users/c5263507/dynamic-connection-planner/src/.*\\.(ts|tsx)$'; then cd /Users/c5263507/dynamic-connection-planner && CI=true npm test -- --watchAll=false --passWithNoTests 2>&1 | tail -20 > /tmp/dcdc-test-result.txt; EXIT=${PIPESTATUS[0]}; if [ \"$EXIT\" != \"0\" ]; then RESULT=$(cat /tmp/dcdc-test-result.txt); echo \"{\\\"hookSpecificOutput\\\": {\\\"hookEventName\\\": \\\"PostToolUse\\\", \\\"additionalContext\\\": \\\"TESTS FAILED after editing $FILE:\\n$RESULT\\\"}}\"; fi; fi",
+            "timeout": 60,
+            "statusMessage": "Tests laufen..."
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/c5263507/dynamic-connection-planner/.claude/hooks/session-end.sh",
+            "timeout": 15,
+            "statusMessage": "Vault aktualisieren..."
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -21,3 +21,11 @@
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Claude Code — lokale Einstellungen mit API-Keys nie committen
+.claude/settings.local.json
+.claude/worktrees/
+.playwright-mcp/
+
+# Temporäre Dateien
+/data-imports/
