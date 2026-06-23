@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   DndContext,
   DragEndEvent,
@@ -14,7 +14,7 @@ import { Canvas, CanvasHandle } from './Canvas';
 import { LayerControls } from './LayerControls';
 import { RoutingConfigPanel } from './RoutingConfigPanel';
 import { Button } from '../ui';
-import { downloadHTML } from '../../utils/htmlExport';
+import { downloadHTML, exportToPDF } from '../../utils/htmlExport';
 
 interface Props {
   plan: Plan;
@@ -42,6 +42,19 @@ export function Creator({
   const [renamingPlanId, setRenamingPlanId] = useState<string | null>(null);
   const [renamingVal, setRenamingVal] = useState('');
   const [draggedAssetId, setDraggedAssetId] = useState<string | null>(null);
+  const [obsidianSynced, setObsidianSynced] = useState<'checking' | 'ok' | 'error'>('checking');
+
+  // Obsidian REST API connectivity check
+  useEffect(() => {
+    const check = () => {
+      fetch('http://localhost:27123/', { method: 'GET', signal: AbortSignal.timeout(2000) })
+        .then(r => setObsidianSynced(r.ok || r.status === 401 ? 'ok' : 'error'))
+        .catch(() => setObsidianSynced('error'));
+    };
+    check();
+    const id = setInterval(check, 15000);
+    return () => clearInterval(id);
+  }, []);
 
   // Ref to canvas so we can read viewport transform when computing drop coords
   const canvasHandle = useRef<CanvasHandle>(null);
@@ -304,6 +317,23 @@ export function Creator({
 
           <Button size="sm" variant="primary" onClick={() => downloadHTML(plan, assets)}>
             Export as HTML
+          </Button>
+          <span
+            title={obsidianSynced === 'ok' ? 'Obsidian Vault verbunden' : 'Obsidian nicht erreichbar'}
+            style={{
+              fontSize: '0.65rem', fontWeight: 700, letterSpacing: '0.05em',
+              padding: '2px 8px', borderRadius: '4px', cursor: 'default', userSelect: 'none',
+              background: obsidianSynced === 'ok' ? '#16a34a' : obsidianSynced === 'error' ? '#dc2626' : '#6b7280',
+              color: '#fff', opacity: obsidianSynced === 'checking' ? 0.6 : 1,
+            }}
+          >
+            {obsidianSynced === 'ok' ? '⬤ SYNCED' : obsidianSynced === 'error' ? '⬤ VAULT OFFLINE' : '○ …'}
+          </span>
+          <Button size="sm" variant="ghost"
+            className="text-gray-500 hover:text-gray-300 hover:bg-gray-700"
+            title="Export as PDF"
+            onClick={() => { if (canvasWrapRef.current) exportToPDF(canvasWrapRef.current, plan.name); }}>
+            PDF
           </Button>
         </div>
 
