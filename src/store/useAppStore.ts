@@ -32,7 +32,13 @@ const CATEGORY_MIGRATION: Record<string, string> = {
 function migrateState(raw: AppState): AppState {
   return {
     ...raw,
-    assets: raw.assets.map(a => ({
+    // Assets are NOT persisted (see partialize). After rehydration the assets
+    // array is empty/undefined — restore from SAMPLE_ASSETS so the app boots
+    // with the full library on every reload.
+    assets: (raw.assets && raw.assets.length > 0
+      ? raw.assets
+      : SAMPLE_ASSETS
+    ).map(a => ({
       ...a,
       attachmentPoints: a.attachmentPoints ?? [],
       category: (CATEGORY_MIGRATION[(a as any).category] ?? (a as any).category) as any,
@@ -170,6 +176,13 @@ const useStore = create<Store>()(
     }),
     {
       name: STORAGE_KEY,
+      // Persist only plans + activePlanId — assets stay in memory (sourced from
+      // sampleAssets.ts on every load). Storing 30+ base64-encoded asset images
+      // (~13MB) would blow the 5MB localStorage quota on first plan update.
+      partialize: (state) => ({
+        plans: state.plans,
+        activePlanId: state.activePlanId,
+      }) as any,
       // On rehydration, run migration to handle legacy data shapes
       onRehydrateStorage: () => (state) => {
         if (state) {
