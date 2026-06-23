@@ -48,6 +48,21 @@ interface Props {
 
 export function AssetPanel({ assets }: Props) {
   const [query, setQuery] = useState('');
+  // Persist collapsed-state across reloads so the user's layout sticks.
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => {
+    try {
+      const raw = localStorage.getItem('dcdc-panel-collapsed');
+      return raw ? JSON.parse(raw) : {};
+    } catch { return {}; }
+  });
+
+  const toggleCategory = (cat: string) => {
+    setCollapsed(prev => {
+      const next = { ...prev, [cat]: !prev[cat] };
+      try { localStorage.setItem('dcdc-panel-collapsed', JSON.stringify(next)); } catch {}
+      return next;
+    });
+  };
 
   const visibleAssets = query.trim() ? searchAssets(assets, query) : assets;
 
@@ -94,18 +109,35 @@ export function AssetPanel({ assets }: Props) {
       </div>
 
       <div className="flex-1 overflow-y-auto p-2 space-y-3">
-        {orderedCategories.map(category => (
-          <div key={category}>
-            <div className="text-xs font-semibold text-gray-400 px-1 pb-1 uppercase tracking-wide">
-              {CATEGORY_LABELS[category as AssetCategory] ?? category}
+        {orderedCategories.map(category => {
+          const isCollapsed = collapsed[category];
+          // While searching, force-expand so results aren't hidden.
+          const showItems = !isCollapsed || !!query.trim();
+          return (
+            <div key={category}>
+              <button
+                type="button"
+                onClick={() => toggleCategory(category)}
+                className="w-full flex items-center gap-1 text-xs font-semibold text-gray-400 px-1 pb-1 uppercase tracking-wide hover:text-gray-600 select-none"
+              >
+                <span className="inline-block w-3 text-center text-gray-500">
+                  {showItems ? '▾' : '▸'}
+                </span>
+                <span className="flex-1 text-left">
+                  {CATEGORY_LABELS[category as AssetCategory] ?? category}
+                </span>
+                <span className="text-gray-300">({groups[category].length})</span>
+              </button>
+              {showItems && (
+                <div className="space-y-1">
+                  {groups[category].map(asset => (
+                    <DraggableAsset key={asset.id} asset={asset} />
+                  ))}
+                </div>
+              )}
             </div>
-            <div className="space-y-1">
-              {groups[category].map(asset => (
-                <DraggableAsset key={asset.id} asset={asset} />
-              ))}
-            </div>
-          </div>
-        ))}
+          );
+        })}
         {orderedCategories.length === 0 && (
           <p className="text-xs text-gray-400 text-center mt-8">
             {query ? `No results for "${query}"` : 'No assets available.\nCreate some in Asset Manager first.'}
