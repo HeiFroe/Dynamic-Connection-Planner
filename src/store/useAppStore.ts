@@ -29,13 +29,71 @@ const CATEGORY_MIGRATION: Record<string, string> = {
   'adapter': 'device-content', 'power': 'device-content', 'bundle': 'device-content',
 };
 
+/**
+ * Defines what each port type can connect to. Used to auto-populate empty
+ * `compatibleWith` arrays during state migration — exports from older versions
+ * of the asset editor leave this field as `[]`, which would block every
+ * connection. Pairs are bidirectional unless one direction is explicitly
+ * omitted (e.g. a cable-end type is compatible with both -in and -out).
+ */
+const PORT_COMPATIBILITY: Record<string, string[]> = {
+  // HDMI: device ports talk to each other; the generic 'hdmi' is a cable-end
+  'hdmi-in':         ['hdmi-out', 'hdmi'],
+  'hdmi-out':        ['hdmi-in', 'hdmi'],
+  'hdmi':            ['hdmi-in', 'hdmi-out'],
+  // DisplayPort: same shape
+  'displayport-in':  ['displayport-out', 'displayport'],
+  'displayport-out': ['displayport-in', 'displayport'],
+  'displayport':     ['displayport-in', 'displayport-out'],
+  // USB: A/B/C and cable-end pairings — most cables are A↔C or C↔C
+  'usb-a':           ['usb-a', 'usb-c', 'usb-b', 'usb-micro'],
+  'usb-b':           ['usb-a', 'usb-b'],
+  'usb-c':           ['usb-c', 'usb-a', 'usb-c-out'],
+  'usb-c-out':       ['usb-c'],
+  'usb-micro':       ['usb-a', 'usb-micro'],
+  // Ethernet
+  'rj45':            ['rj45', 'rj45-poe'],
+  'rj45-poe':        ['rj45-poe', 'rj45'],
+  // Power
+  'power-c13':       ['power-c14', 'power-eu', 'power'],
+  'power-c14':       ['power-c13'],
+  'power-eu':        ['power-eu-out', 'power-c13', 'power'],
+  'power-eu-out':    ['power-eu'],
+  'power':           ['power-c13', 'power-eu', 'power-adapter', 'power'],
+  'power-adapter':   ['power', 'power-adapter'],
+  // Audio
+  'audio-3.5-in':    ['audio-3.5-out', 'audio-3.5'],
+  'audio-3.5-out':   ['audio-3.5-in', 'audio-3.5'],
+  'audio-3.5':       ['audio-3.5-in', 'audio-3.5-out'],
+  // Logitech MicPod (12-pin proprietary) — host has IN sockets, pod has OUT plug
+  'logi-micpod-host':['logi-micpod-out', 'logi-micpod'],
+  'logi-micpod-in':  ['logi-micpod-out', 'logi-micpod'],
+  'logi-micpod-out': ['logi-micpod-in', 'logi-micpod-host', 'logi-micpod'],
+  'logi-micpod':     ['logi-micpod-in', 'logi-micpod-out', 'logi-micpod-host'],
+};
+
+/** Populate empty `compatibleWith` from PORT_COMPATIBILITY. User overrides preserved. */
+function fillCompatibility(port: any): any {
+  if (Array.isArray(port.compatibleWith) && port.compatibleWith.length > 0) return port;
+  const compat = PORT_COMPATIBILITY[port.type];
+  if (!compat) return port;
+  return { ...port, compatibleWith: compat };
+}
+
 function migrateState(raw: AppState): AppState {
   return {
     ...raw,
-    assets: raw.assets.map(a => ({
+    // Assets are NOT persisted (see partialize). After rehydration the assets
+    // array is empty/undefined — restore from SAMPLE_ASSETS so the app boots
+    // with the full library on every reload.
+    assets: (raw.assets && raw.assets.length > 0
+      ? raw.assets
+      : SAMPLE_ASSETS
+    ).map(a => ({
       ...a,
       attachmentPoints: a.attachmentPoints ?? [],
       category: (CATEGORY_MIGRATION[(a as any).category] ?? (a as any).category) as any,
+      ports: (a.ports ?? []).map(fillCompatibility),
     })),
     plans: raw.plans.map(plan => ({
       ...plan,
@@ -51,8 +109,13 @@ function migrateState(raw: AppState): AppState {
 
 function initialState(): AppState {
   const defaultPlan = createEmptyPlan('Conference Room Plan 1');
+  // Apply compatibility migration so first-boot (no localStorage) works too
+  const assets = SAMPLE_ASSETS.map(a => ({
+    ...a,
+    ports: (a.ports ?? []).map(fillCompatibility),
+  }));
   return {
-    assets: SAMPLE_ASSETS,
+    assets,
     plans: [defaultPlan],
     activePlanId: defaultPlan.id,
   };
@@ -170,6 +233,13 @@ const useStore = create<Store>()(
     }),
     {
       name: STORAGE_KEY,
+      // Persist only plans + activePlanId — assets stay in memory (sourced from
+      // sampleAssets.ts on every load). Storing 30+ base64-encoded asset images
+      // (~13MB) would blow the 5MB localStorage quota on first plan update.
+      partialize: (state) => ({
+        plans: state.plans,
+        activePlanId: state.activePlanId,
+      }) as any,
       // On rehydration, run migration to handle legacy data shapes
       onRehydrateStorage: () => (state) => {
         if (state) {
