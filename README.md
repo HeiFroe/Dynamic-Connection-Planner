@@ -1,46 +1,43 @@
-# Getting Started with Create React App
+# Dynamic Connection Planner
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+A React + TypeScript single-page app for visually planning AV/IT connections in conference rooms. Place hardware assets on a canvas, connect their ports with typed cables, and export the result as a standalone HTML file.
 
-## Available Scripts
+## Features
 
-In the project directory, you can run:
+- **Visual Canvas** — drag & drop hardware assets, zoom/pan, room areas
+- **Port-based Connections** — typed ports (HDMI, USB-C, RJ45, etc.) with compatibility checks
+- **Layer System** — toggle video/USB/power/ethernet/other layers independently
+- **Asset Management** — create and edit custom hardware assets with port configuration
+- **Orthogonal Cable Routing** — automatic routing with obstacle avoidance
+- **HTML Export** — standalone export for field use without the app
+- **Sample Library** — Logitech Rally Bar, LG displays, TAP, and more pre-configured
 
-### `npm start`
+## Getting Started
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in the browser.
+```bash
+npm install
+npm start        # dev server at http://localhost:3000
+npm test         # run tests
+npm run build    # production build
+```
 
-The page will reload if you make edits.\
-You will also see any lint errors in the console.
+## Stack
 
-### `npm test`
+- React 18 + TypeScript (strict mode)
+- Tailwind CSS
+- Custom SVG canvas (no React Flow / Konva)
+- localStorage for persistence — no backend required
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+## Project Structure
 
-### `npm run build`
-
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
-
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
-
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
-
-### `npm run eject`
-
-**Note: this is a one-way operation. Once you `eject`, you can’t go back!**
-
-If you aren’t satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
-
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you’re on your own.
-
-You don’t have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn’t feel obligated to use this feature. However we understand that this tool wouldn’t be useful if you couldn’t customize it when you are ready for it.
-
-## Learn More
-
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
-
-To learn React, check out the [React documentation](https://reactjs.org/).
+```
+src/
+├── components/creator/     # Canvas, assets, connections, controls
+├── components/management/  # Asset library management
+├── components/ui/          # UI primitives
+├── store/useAppStore.ts    # Single state owner
+├── types/index.ts          # All TypeScript types
+├── utils/                  # Routing, compatibility, export
+├── config/                 # Logitech MicPod rules
+└── data/                   # Sample asset library
+```
