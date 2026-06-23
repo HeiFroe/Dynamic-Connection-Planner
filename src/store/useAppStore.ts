@@ -1,16 +1,14 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useRef } from 'react';
+import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 import { AppState, Asset, Plan, Layer, RoutingConfig, DEFAULT_ROUTING_CONFIG } from '../types';
 import { SAMPLE_ASSETS } from '../data/sampleAssets';
 
 const STORAGE_KEY = 'dynamic-connection-planner-v1';
 
 const DEFAULT_LAYER_VISIBILITY: Record<Layer, boolean> = {
-  hardware: true,
-  video: true,
-  usb: true,
-  power: true,
-  ethernet: true,
-  other: true,
+  hardware: true, video: true, usb: true,
+  power: true, ethernet: true, other: true,
 };
 
 function createEmptyPlan(name: string): Plan {
@@ -26,14 +24,9 @@ function createEmptyPlan(name: string): Plan {
 }
 
 const CATEGORY_MIGRATION: Record<string, string> = {
-  'video-bar':      'collaboration-system',
-  'collaboration':  'collaboration-system',
-  'hub':            'collab-extension',
-  'camera':         'collab-extension',
-  'switcher':       'collab-extension',
-  'adapter':        'device-content',
-  'power':          'device-content',
-  'bundle':         'device-content',  // bundles become device-content (closest semantic match)
+  'video-bar': 'collaboration-system', 'collaboration': 'collaboration-system',
+  'hub': 'collab-extension', 'camera': 'collab-extension', 'switcher': 'collab-extension',
+  'adapter': 'device-content', 'power': 'device-content', 'bundle': 'device-content',
 };
 
 function migrateState(raw: AppState): AppState {
@@ -42,7 +35,6 @@ function migrateState(raw: AppState): AppState {
     assets: raw.assets.map(a => ({
       ...a,
       attachmentPoints: a.attachmentPoints ?? [],
-      // Migrate old category names to new taxonomy
       category: (CATEGORY_MIGRATION[(a as any).category] ?? (a as any).category) as any,
     })),
     plans: raw.plans.map(plan => ({
@@ -57,16 +49,7 @@ function migrateState(raw: AppState): AppState {
   };
 }
 
-function loadState(): AppState {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      // Existing state: trust user's asset DB completely. Never auto-inject samples,
-      // even if new ones exist in SAMPLE_ASSETS — the user manages assets manually.
-      return migrateState(JSON.parse(raw) as AppState);
-    }
-  } catch {}
-  // First run only: seed from SAMPLE_ASSETS.
+function initialState(): AppState {
   const defaultPlan = createEmptyPlan('Conference Room Plan 1');
   return {
     assets: SAMPLE_ASSETS,
@@ -75,149 +58,152 @@ function loadState(): AppState {
   };
 }
 
-function saveState(state: AppState) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  } catch {}
+// ── Zustand store ─────────────────────────────────────────────────────────────
+
+interface StoreActions {
+  saveAsset: (asset: Asset) => void;
+  deleteAsset: (id: string) => void;
+  replaceAllAssets: (assets: Asset[]) => void;
+  exportAssetsJSON: () => void;
+  importAssetsJSON: (json: string, currentAssets?: Asset[]) => void;
+  createPlan: (name: string) => string;
+  setActivePlan: (id: string) => void;
+  updatePlan: (plan: Plan) => void;
+  deletePlan: (id: string) => void;
+  renamePlan: (id: string, name: string) => void;
+  updateRoutingConfig: (config: Partial<RoutingConfig>) => void;
 }
 
+type Store = AppState & StoreActions;
+
+const useStore = create<Store>()(
+  persist(
+    (set, get) => ({
+      ...initialState(),
+
+      saveAsset: (asset) => set(s => {
+        const exists = s.assets.some(a => a.id === asset.id);
+        const now = new Date().toISOString();
+        return {
+          assets: exists
+            ? s.assets.map(a => a.id === asset.id ? { ...asset, updatedAt: now } : a)
+            : [...s.assets, { ...asset, createdAt: now, updatedAt: now }],
+        };
+      }),
+
+      deleteAsset: (id) => set(s => ({ assets: s.assets.filter(a => a.id !== id) })),
+
+      replaceAllAssets: (assets) => set({ assets }),
+
+      exportAssetsJSON: () => {
+        const assets = get().assets;
+        const blob = new Blob([JSON.stringify(assets, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a'); a.href = url; a.download = 'assets.json'; a.click();
+        URL.revokeObjectURL(url);
+      },
+
+      importAssetsJSON: (json, currentAssets) => {
+        let imported: Asset[];
+        try { imported = JSON.parse(json) as Asset[]; }
+        catch { alert('Invalid JSON file.'); return; }
+        if (!Array.isArray(imported)) { alert('Invalid JSON file: array expected.'); return; }
+
+        const normalized = imported.map(a => ({ ...a, attachmentPoints: a.attachmentPoints ?? [] }));
+        const existing = currentAssets ?? get().assets;
+        const existingIds = new Set(existing.map(a => a.id));
+        const conflicts = normalized.filter(a => existingIds.has(a.id));
+        const fresh = normalized.filter(a => !existingIds.has(a.id));
+
+        let toReplace: Asset[] = [];
+        if (conflicts.length > 0) {
+          const overwrite = window.confirm(
+            `${conflicts.length} asset(s) already exist with the same ID.\n\n` +
+            `OK = overwrite\nCancel = keep existing, import only ${fresh.length} new`,
+          );
+          if (overwrite) toReplace = conflicts;
+        }
+        const replaceIds = new Set(toReplace.map(a => a.id));
+        const now = new Date().toISOString();
+        const stamped = [...fresh, ...toReplace].map(a => ({
+          ...a, createdAt: a.createdAt ?? now, updatedAt: now,
+        }));
+        set(s => ({
+          assets: [...s.assets.filter(a => !replaceIds.has(a.id)), ...stamped],
+        }));
+        alert(`Import complete: ${fresh.length} new, ${toReplace.length} overwritten, ${conflicts.length - toReplace.length} skipped.`);
+      },
+
+      createPlan: (name) => {
+        const plan = createEmptyPlan(name);
+        set(s => ({ plans: [...s.plans, plan], activePlanId: plan.id }));
+        return plan.id;
+      },
+
+      setActivePlan: (id) => set({ activePlanId: id }),
+
+      updatePlan: (plan) => set(s => ({
+        plans: s.plans.map(p => p.id === plan.id
+          ? { ...plan, updatedAt: new Date().toISOString() } : p),
+      })),
+
+      deletePlan: (id) => set(s => {
+        const plans = s.plans.filter(p => p.id !== id);
+        return {
+          plans,
+          activePlanId: s.activePlanId === id ? (plans[0]?.id ?? null) : s.activePlanId,
+        };
+      }),
+
+      renamePlan: (id, name) => set(s => ({
+        plans: s.plans.map(p => p.id === id
+          ? { ...p, name, updatedAt: new Date().toISOString() } : p),
+      })),
+
+      updateRoutingConfig: (config) => set(s => ({
+        plans: s.plans.map(p => p.id !== s.activePlanId ? p : {
+          ...p,
+          routingConfig: { ...DEFAULT_ROUTING_CONFIG, ...p.routingConfig, ...config },
+          updatedAt: new Date().toISOString(),
+        }),
+      })),
+    }),
+    {
+      name: STORAGE_KEY,
+      // On rehydration, run migration to handle legacy data shapes
+      onRehydrateStorage: () => (state) => {
+        if (state) {
+          const migrated = migrateState(state as AppState);
+          Object.assign(state, migrated);
+        }
+      },
+    },
+  ),
+);
+
+// ── Public hook — same API as before ─────────────────────────────────────────
+
 export function useAppStore() {
-  const [state, setState] = useState<AppState>(loadState);
+  const state = useStore();
+  // stateRef kept for importAssetsJSON which needs snapshot outside setState
   const stateRef = useRef(state);
   stateRef.current = state;
-
-  useEffect(() => {
-    saveState(state);
-  }, [state]);
-
-  // ── Assets ──────────────────────────────────────────────────────────
-
-  const saveAsset = useCallback((asset: Asset) => {
-    setState(s => {
-      const exists = s.assets.some(a => a.id === asset.id);
-      return {
-        ...s,
-        assets: exists
-          ? s.assets.map(a => a.id === asset.id ? { ...asset, updatedAt: new Date().toISOString() } : a)
-          : [...s.assets, { ...asset, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }],
-      };
-    });
-  }, []);
-
-  const deleteAsset = useCallback((id: string) => {
-    setState(s => ({ ...s, assets: s.assets.filter(a => a.id !== id) }));
-  }, []);
-
-  const exportAssetsJSON = useCallback(() => {
-    const blob = new Blob([JSON.stringify(state.assets, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a'); a.href = url; a.download = 'assets.json'; a.click();
-    URL.revokeObjectURL(url);
-  }, [state.assets]);
-
-  const importAssetsJSON = useCallback((json: string) => {
-    let imported: Asset[];
-    try {
-      imported = JSON.parse(json) as Asset[];
-    } catch { alert('Invalid JSON file.'); return; }
-    if (!Array.isArray(imported)) { alert('Invalid JSON file: array expected.'); return; }
-    // Normalize: attachmentPoints is required by the type but may be missing
-    // for cable/adapter assets in external imports. Default to [].
-    const normalized: Asset[] = imported.map(a => ({
-      ...a,
-      attachmentPoints: a.attachmentPoints ?? [],
-    }));
-    // Compute conflicts and prompt OUTSIDE setState — React 19 StrictMode runs
-    // the updater twice in dev, which would prompt twice if confirm() were inside.
-    const currentAssets = stateRef.current.assets;
-    const existingIds = new Set(currentAssets.map(a => a.id));
-    const conflicts = normalized.filter(a => existingIds.has(a.id));
-    const fresh = normalized.filter(a => !existingIds.has(a.id));
-    let toReplace: Asset[] = [];
-    if (conflicts.length > 0) {
-      const overwrite = window.confirm(
-        `${conflicts.length} asset(s) already exist with the same ID.\n\n` +
-        `OK = overwrite (your local edits will be lost)\n` +
-        `Cancel = keep existing, import only ${fresh.length} new`,
-      );
-      if (overwrite) toReplace = conflicts;
-    }
-    const replaceIds = new Set(toReplace.map(a => a.id));
-    const now = new Date().toISOString();
-    const stamped = [...fresh, ...toReplace].map(a => ({
-      ...a,
-      createdAt: a.createdAt ?? now,
-      updatedAt: now,
-    }));
-    setState(s => {
-      const kept = s.assets.filter(a => !replaceIds.has(a.id));
-      return { ...s, assets: [...kept, ...stamped] };
-    });
-    alert(`Import complete: ${fresh.length} new, ${toReplace.length} overwritten, ${conflicts.length - toReplace.length} skipped.`);
-  }, []);
-
-  // ── Plans ────────────────────────────────────────────────────────────
-
-  const createPlan = useCallback((name: string) => {
-    const plan = createEmptyPlan(name);
-    setState(s => ({ ...s, plans: [...s.plans, plan], activePlanId: plan.id }));
-    return plan.id;
-  }, []);
-
-  const setActivePlan = useCallback((id: string) => {
-    setState(s => ({ ...s, activePlanId: id }));
-  }, []);
-
-  const updatePlan = useCallback((plan: Plan) => {
-    setState(s => ({
-      ...s,
-      plans: s.plans.map(p => p.id === plan.id ? { ...plan, updatedAt: new Date().toISOString() } : p),
-    }));
-  }, []);
-
-  const deletePlan = useCallback((id: string) => {
-    setState(s => {
-      const plans = s.plans.filter(p => p.id !== id);
-      return {
-        ...s,
-        plans,
-        activePlanId: s.activePlanId === id ? (plans[0]?.id ?? null) : s.activePlanId,
-      };
-    });
-  }, []);
-
-  const renamePlan = useCallback((id: string, name: string) => {
-    setState(s => ({
-      ...s,
-      plans: s.plans.map(p => p.id === id ? { ...p, name, updatedAt: new Date().toISOString() } : p),
-    }));
-  }, []);
-
-  const updateRoutingConfig = useCallback((config: Partial<RoutingConfig>) => {
-    setState(s => ({
-      ...s,
-      plans: s.plans.map(p => p.id !== s.activePlanId ? p : {
-        ...p,
-        routingConfig: { ...DEFAULT_ROUTING_CONFIG, ...p.routingConfig, ...config },
-        updatedAt: new Date().toISOString(),
-      }),
-    }));
-  }, []);
 
   const activePlan = state.plans.find(p => p.id === state.activePlanId) ?? null;
 
   return {
-    state,
+    state: { assets: state.assets, plans: state.plans, activePlanId: state.activePlanId },
     activePlan,
-    saveAsset,
-    deleteAsset,
-    exportAssetsJSON,
-    importAssetsJSON,
-    createPlan,
-    setActivePlan,
-    updatePlan,
-    deletePlan,
-    renamePlan,
-    updateRoutingConfig,
+    saveAsset:           state.saveAsset,
+    deleteAsset:         state.deleteAsset,
+    exportAssetsJSON:    state.exportAssetsJSON,
+    importAssetsJSON:    (json: string) => state.importAssetsJSON(json, stateRef.current.assets),
+    replaceAllAssets:    state.replaceAllAssets,
+    createPlan:          state.createPlan,
+    setActivePlan:       state.setActivePlan,
+    updatePlan:          state.updatePlan,
+    deletePlan:          state.deletePlan,
+    renamePlan:          state.renamePlan,
+    updateRoutingConfig: state.updateRoutingConfig,
   };
 }
