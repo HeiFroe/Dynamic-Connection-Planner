@@ -11,6 +11,7 @@ import {
 import { Plan, Asset, Layer, PlacedAsset, RoutingConfig, DEFAULT_ROUTING_CONFIG } from '../../types';
 import { AssetPanel } from './AssetPanel';
 import { Canvas, CanvasHandle } from './Canvas';
+import { CanvasFlow } from './CanvasFlow';
 import { LayerControls } from './LayerControls';
 import { RoutingConfigPanel } from './RoutingConfigPanel';
 import { Button } from '../ui';
@@ -43,6 +44,14 @@ export function Creator({
   const [renamingVal, setRenamingVal] = useState('');
   const [draggedAssetId, setDraggedAssetId] = useState<string | null>(null);
   const [obsidianSynced, setObsidianSynced] = useState<'checking' | 'ok' | 'error'>('checking');
+  const [engine, setEngine] = useState<'classic' | 'reactflow'>(
+    () => (localStorage.getItem('dcdc-canvas-engine') as 'classic' | 'reactflow') ?? 'classic'
+  );
+
+  const setEngineAndPersist = (e: 'classic' | 'reactflow') => {
+    setEngine(e);
+    localStorage.setItem('dcdc-canvas-engine', e);
+  };
 
   // Obsidian REST API connectivity check
   useEffect(() => {
@@ -318,6 +327,18 @@ export function Creator({
           <Button size="sm" variant="primary" onClick={() => downloadHTML(plan, assets)}>
             Export as HTML
           </Button>
+          <button
+            onClick={() => setEngineAndPersist(engine === 'classic' ? 'reactflow' : 'classic')}
+            title={`Current: ${engine === 'classic' ? 'Classic SVG' : 'React Flow (Beta)'} — click to switch`}
+            style={{
+              fontSize: '0.65rem', fontWeight: 700, letterSpacing: '0.05em',
+              padding: '2px 8px', borderRadius: '4px', cursor: 'pointer', userSelect: 'none',
+              background: engine === 'reactflow' ? '#7c3aed' : '#475569',
+              color: '#fff', border: 'none',
+            }}
+          >
+            {engine === 'reactflow' ? '⚡ FLOW' : '⊞ CLASSIC'}
+          </button>
           <span
             title={obsidianSynced === 'ok' ? 'Obsidian Vault verbunden' : 'Obsidian nicht erreichbar'}
             style={{
@@ -346,14 +367,25 @@ export function Creator({
             ref={canvasWrapRef}
             style={{ flex: 1, minWidth: 0, minHeight: 0, position: 'relative' }}
           >
-            <Canvas
-              ref={canvasHandle}
-              plan={plan}
-              assets={assets}
-              onUpdatePlan={onUpdatePlan}
-              onEditAsset={onEditAsset}
-              routingConfig={plan.routingConfig ?? DEFAULT_ROUTING_CONFIG}
-            />
+            {engine === 'reactflow' ? (
+              <CanvasFlow
+                ref={canvasHandle}
+                plan={plan}
+                assets={assets}
+                onUpdatePlan={onUpdatePlan}
+                onEditAsset={onEditAsset}
+                routingConfig={plan.routingConfig ?? DEFAULT_ROUTING_CONFIG}
+              />
+            ) : (
+              <Canvas
+                ref={canvasHandle}
+                plan={plan}
+                assets={assets}
+                onUpdatePlan={onUpdatePlan}
+                onEditAsset={onEditAsset}
+                routingConfig={plan.routingConfig ?? DEFAULT_ROUTING_CONFIG}
+              />
+            )}
           </div>
         </div>
       </div>
