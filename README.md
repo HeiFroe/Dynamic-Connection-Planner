@@ -27,20 +27,65 @@ It correctly bundles React in production mode and optimizes the build for the be
 The build is minified and the filenames include the hashes.\
 Your app is ready to be deployed!
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+---
 
-### `npm run eject`
+## Obsidian Integration
 
-**Note: this is a one-way operation. Once you `eject`, you can’t go back!**
+DCDC can sync your asset library and plans bidirectionally with an Obsidian vault.
+The vault becomes the source of truth — changes you make in Obsidian (renaming a
+note, editing frontmatter, dragging nodes in Canvas) flow back into DCDC on the
+next poll.
 
-If you aren’t satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+### Setup
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you’re on your own.
+1. **Install the [Local REST API](https://github.com/coddingtonbear/obsidian-local-rest-api) plugin** in your Obsidian vault.
+2. Open the plugin settings:
+   - Note the **Bearer Token** (long random string).
+   - Add `http://localhost:3000` to **Allowed Origins** (required for the browser to fetch).
+   - Make sure the HTTP server is enabled on port `27123`. (Don't use HTTPS on 27124 —
+     the self-signed cert is painful in the browser.)
+3. In DCDC, click the **⚙** icon in the header (top right) and configure:
+   - **Enable Obsidian sync** on
+   - **API Base URL**: `http://127.0.0.1:27123` (default)
+   - **Bearer Token**: paste from Obsidian
+   - **Vault Subfolder**: `DCDC` (default — all DCDC files live here)
+   - **Poll interval**: 30 seconds (default)
+4. Click **Test connection** to verify, then **Save**.
+5. The first sync pulls vault contents and overwrites your local state.
 
-You don’t have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn’t feel obligated to use this feature. However we understand that this tool wouldn’t be useful if you couldn’t customize it when you are ready for it.
+### What gets synced
+
+| DCDC entity | Vault representation |
+|---|---|
+| `Asset` | `DCDC/Assets/<category>/<vendor>/<model>--<dbNumber>.md` with full YAML frontmatter |
+| Asset image | `DCDC/Attachments/asset-<uuid>.png` |
+| `Plan` | `DCDC/Plans/<plan-slug>.canvas` (standard JSON Canvas 1.0 file, editable in Obsidian's Canvas view) |
+| Plan extras | `DCDC/Plans/<plan-slug>.dcdc.json` sidecar — holds DCDC-only fields (layer visibility, port IDs, waypoints, isDirect flag) |
+
+### Conflict resolution
+
+**Obsidian always wins.** On app start, DCDC fully pulls from the vault and
+replaces its local state. During the session, local edits push to the vault
+1.5 seconds after the change. Race conditions (you edit locally while a poll
+is in flight) resolve in favour of the vault content.
+
+If a sidecar is missing or deleted, DCDC reconstructs the plan with degraded
+fidelity — it picks the first compatible port on each side of every edge.
+
+### Limitations
+
+- Renaming a note in Obsidian is fine — DCDC tracks assets by `dcdc-id` (UUID)
+  in frontmatter, not by file path.
+- Renaming a plan file in Obsidian changes its slug — the plan is treated as
+  the same plan (sidecar carries `planId`).
+- Deleting an asset note in Obsidian deletes it locally too. Plans referencing
+  that asset will show orphan instances.
+- The hand-rolled YAML parser handles the DCDC schema (scalars, flow objects
+  like `position: { x, y }`, arrays of objects). Extra free-form YAML you add
+  won't be preserved.
+
+---
 
 ## Learn More
 
 You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
-
-To learn React, check out the [React documentation](https://reactjs.org/).
